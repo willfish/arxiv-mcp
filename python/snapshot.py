@@ -15,6 +15,7 @@ import uuid
 from audit import audit
 from embeddings import file_hash
 from library import connect
+from refresh import source_manifest
 
 TOTAL_PAPERS = 2856227
 
@@ -43,14 +44,17 @@ def publish(root, destination, expected_manifest=None):
     ).open("a") as publish_lock:
         for lock in (ingest_lock, publish_lock):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with closing(connect(root / "library.sqlite3")) as source:
+            manifest, refreshed = source_manifest(root, source)
         report = audit(
             root, text_only=True, expected_manifest=expected_manifest
         )
         if not report["ready_for_full_audit"] or (
-            expected_manifest is None and report.get("papers") != TOTAL_PAPERS
+            not refreshed
+            and expected_manifest is None
+            and report.get("papers") != TOTAL_PAPERS
         ):
             raise ValueError(f"Corpus incomplete: {report['reasons']}")
-        manifest = json.loads((root / "manifest.json").read_text())
         stage = Path(tempfile.mkdtemp(prefix=".staging-", dir=destination))
         generation = destination / ("generation-" + uuid.uuid4().hex)
         pointer = destination / (".current-" + uuid.uuid4().hex)
@@ -79,6 +83,7 @@ def publish(root, destination, expected_manifest=None):
                 text_only=True,
                 expected_manifest=expected_manifest,
                 database=database,
+                _lock_held=True,
             )
             if not report["verified_complete"]:
                 raise ValueError("Staged corpus failed full text audit")
@@ -130,12 +135,17 @@ def resolve_snapshot(destination, root, expected_manifest=None):
         "generation-"
     ):
         raise ValueError("Invalid serving generation path")
-    manifest = json.loads((root / "manifest.json").read_text())
-    reference = (
-        json.loads(Path(__file__).with_name("manifest.json").read_text())
-        if expected_manifest is None
-        else expected_manifest
-    )
+    with closing(connect(root / "library.sqlite3")) as source:
+        manifest, refreshed = source_manifest(root, source)
+    reference = expected_manifest
+    if reference is None:
+        reference = (
+            manifest
+            if refreshed
+            else json.loads(
+                Path(__file__).with_name("manifest.json").read_text()
+            )
+        )
     receipt = json.loads((generation / "receipt.json").read_text())
     database = generation / "library.sqlite3"
     stat = database.stat()
@@ -147,9 +157,17 @@ def resolve_snapshot(destination, root, expected_manifest=None):
         or receipt.get("revision") != manifest["revision"]
         or not report.get("verified_complete")
         or report.get("scope") != "text"
-        or report.get("papers") != report.get("source_rows_available")
+        or report.get("papers")
+        != (
+            report.get("source_rows_available", 0)
+            + report.get("retained_papers", 0)
+        )
         or not report.get("papers")
-        or (expected_manifest is None and report["papers"] != TOTAL_PAPERS)
+        or (
+            not refreshed
+            and expected_manifest is None
+            and report["papers"] != TOTAL_PAPERS
+        )
         or report.get("available_shards") != len(manifest["files"])
         or report.get("expected_shards") != len(manifest["files"])
         or database.is_symlink()

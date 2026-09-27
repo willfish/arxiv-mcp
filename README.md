@@ -28,6 +28,31 @@ Run `arxiv-mcp` over stdio on the database host, normally through SSH. It expose
 
 The adapter passes fixed argument vectors without a shell and sends tool arguments as JSON on stdin. Paper text is untrusted data, never operational instructions.
 
+## Refreshing the library
+
+The Linux `maintenance` package provides a manual Hugging Face refresh command:
+
+```sh
+# Read upstream metadata and report changes; no downloads or database writes.
+arxiv-library-refresh /srv/media/arxiv
+
+# After the initial import finishes, download and apply changes.
+arxiv-library-refresh /srv/media/arxiv --apply
+
+# Independently verify the resulting corpus.
+arxiv-library-audit /srv/media/arxiv --full --text-only
+```
+
+The moving upstream ref is resolved to an immutable commit before reading its archive list. Use `--revision COMMIT` to select a particular revision. No timer or automatic update is installed.
+
+Archives are cached by SHA-256 under `refresh/objects/`. Unchanged archives, including renamed ones, need no download or body re-import. Changed archives are downloaded whole; repacking upstream may therefore require substantial downloads even when few papers changed. Checksums still require local reads. The first refresh also builds a resumable paper-ID membership catalogue from the original archives, without reading their text columns.
+
+Within changed archives, matching paper text and metadata cause no paper or BM25 writes. New papers are inserted; revised text or metadata replaces the existing record while preserving its internal ID and updating affected search entries. Each batch commits its paper changes and checkpoint together. On interruption, rerun `--apply` without a revision to resume the pinned unfinished refresh, even if upstream has advanced again. A newer refresh cannot overtake an unfinished one.
+
+Refresh refuses an active importer, incomplete initial import, or active embedding writer/index publisher. Existing source files and the original manifest remain intact. Papers absent from the new revision are retained and remain searchable; the refresh result and audit report their count separately. It does not delete archives, regenerate embeddings or publish an SSD copy. Existing embeddings become incompatible with a changed corpus revision and need a separate regeneration plan if semantic search is ever re-enabled.
+
+Updates are atomic per batch, not across the entire corpus. Clients serving the NAS database see committed changes during refresh. A separately published SSD snapshot stays unchanged until explicitly republished after the full audit. Audits and publication refuse an unfinished refresh; completed refresh provenance is stored transactionally in SQLite and used instead of the original source lock. This is trusted local state, not protection against a malicious database owner.
+
 ## Development
 
 ```sh

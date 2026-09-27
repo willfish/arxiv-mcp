@@ -57,9 +57,9 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p "$out/lib/arxiv-library" "$out/bin"
-    cp audit.py snapshot.py prepare.py download.py library.py ingest.py embeddings.py build_index.py semantic.py server.py \
+    cp audit.py snapshot.py refresh.py prepare.py download.py library.py ingest.py embeddings.py build_index.py semantic.py server.py \
       model-lock.json manifest.json "$out/lib/arxiv-library/"
-    for pair in snapshot:snapshot audit:audit prepare:prepare server:server download:download ingest:ingest embeddings:embeddings index:build_index; do
+    for pair in refresh:refresh snapshot:snapshot audit:audit prepare:prepare server:server download:download ingest:ingest embeddings:embeddings index:build_index; do
       name="''${pair%%:*}"
       script="''${pair#*:}"
       makeWrapper ${python}/bin/python "$out/bin/arxiv-library-$name" \
@@ -71,8 +71,8 @@ stdenvNoCC.mkDerivation {
   '';
   passthru = { inherit python; };
   meta = {
-    description = "Read-only NAS arXiv full-text BM25 and scientific passage search over MCP";
+    description = "Verified arXiv ingestion, incremental refresh, audits and snapshots";
     platforms = lib.platforms.linux;
-    mainProgram = "arxiv-library-server";
+    mainProgram = "arxiv-library-refresh";
   };
 }

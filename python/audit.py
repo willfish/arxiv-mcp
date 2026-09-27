@@ -1,7 +1,8 @@
 """Verify corpus, passage and index coverage independently of job status."""
 
 import argparse
-from contextlib import closing
+from contextlib import ExitStack, closing
+import fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -22,6 +23,7 @@ from embeddings import (
     vector_id,
 )
 from library import connect
+from refresh import retained_papers, source_manifest, source_path
 
 
 def passage_count(chars):
@@ -59,18 +61,39 @@ def verify_sqlite(database):
 
 
 def audit(
-    root, full=False, expected_manifest=None, text_only=False, database=None
+    root,
+    full=False,
+    expected_manifest=None,
+    text_only=False,
+    database=None,
+    _lock_held=False,
 ):
     root = Path(root)
     database = (
         Path(database) if database is not None else root / "library.sqlite3"
     )
     manifest = json.loads((root / "manifest.json").read_text())
-    reference = (
-        json.loads(Path(__file__).with_name("manifest.json").read_text())
-        if expected_manifest is None
-        else expected_manifest
-    )
+    refreshed = False
+    authority = root / "library.sqlite3"
+    if authority.exists():
+        with closing(connect(authority)) as source:
+            try:
+                manifest, refreshed = source_manifest(root, source)
+            except ValueError as error:
+                return {
+                    "verified_complete": False,
+                    "ready_for_full_audit": False,
+                    "reasons": [str(error)],
+                }
+    reference = expected_manifest
+    if reference is None:
+        reference = (
+            manifest
+            if refreshed
+            else json.loads(
+                Path(__file__).with_name("manifest.json").read_text()
+            )
+        )
     expected, available, reasons = 0, 0, []
     if manifest != reference:
         return {
@@ -82,7 +105,7 @@ def audit(
         }
     shard_rows = {}
     for item in manifest["files"]:
-        path = root / item["path"]
+        path = source_path(root, item, refreshed)
         if not path.exists() or path.stat().st_size != item["size"]:
             reasons.append(f'Missing or wrong-sized shard: {item["path"]}')
             continue
@@ -97,16 +120,36 @@ def audit(
             "reasons": reasons + ["Database not created"],
             "available_shards": available,
         }
-    with closing(connect(database)) as db:
+    with closing(connect(database)) as db, ExitStack() as resources:
         revision = db.execute(
             "SELECT value FROM settings WHERE key='revision'"
         ).fetchone()
         if not revision or revision[0] != manifest["revision"]:
-            reasons.append("Database revision differs from manifest")
+            return {
+                "verified_complete": False,
+                "ready_for_full_audit": False,
+                "reasons": reasons
+                + ["Database revision differs from manifest"],
+            }
         papers = db.execute("SELECT count(*) FROM papers").fetchone()[0]
-        imports = {
-            r["shard"]: dict(r) for r in db.execute("SELECT * FROM imports")
-        }
+        if refreshed:
+            checkpoints = {
+                r["hash"]: dict(r)
+                for r in db.execute(
+                    "SELECT * FROM refresh_shards WHERE revision=?",
+                    (manifest["revision"],),
+                )
+            }
+            imports = {
+                item["path"]: checkpoints[item["lfs"]["oid"]]
+                for item in manifest["files"]
+                if item["lfs"]["oid"] in checkpoints
+            }
+        else:
+            imports = {
+                r["shard"]: dict(r)
+                for r in db.execute("SELECT * FROM imports")
+            }
         if set(imports) - set(shard_rows):
             reasons.append("Unexpected imported shard")
         for name, count in shard_rows.items():
@@ -117,8 +160,18 @@ def audit(
                 or state["rows_done"] != count
             ):
                 reasons.append(f"Import incomplete: {name}")
-        if papers != expected:
+        retained = retained_papers(db, manifest) if refreshed else 0
+        if papers != expected + retained:
             reasons.append("Paper count differs from available source rows")
+        if (
+            refreshed
+            and db.execute(
+                "SELECT 1 FROM papers p WHERE NOT EXISTS "
+                "(SELECT 1 FROM refresh_members m WHERE m.paper_id=p.paper_id) "
+                "LIMIT 1"
+            ).fetchone()
+        ):
+            reasons.append("Paper has no known source-archive membership")
         folder = root / "embeddings"
         blocks = [] if text_only else sorted(folder.glob("block-*"))
         states = [
@@ -148,23 +201,40 @@ def audit(
             "expected_shards": len(manifest["files"]),
             "source_rows_available": expected,
             "papers": papers,
+            "retained_papers": retained,
+            "revision": manifest["revision"],
             **(
                 {}
                 if text_only
                 else {
                     "encoded_papers": encoded,
                     "encoded_passages": passages,
-                    "published_papers": published["papers"] if published else 0,
+                    "published_papers": (
+                        published["papers"] if published else 0
+                    ),
                 }
             ),
             "reasons": reasons,
         }
         if not full or reasons:
             return report
+        if not _lock_held:
+            lock = resources.enter_context((root / "ingest.lock").open("a"))
+            try:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return report | {
+                    "ready_for_full_audit": False,
+                    "reasons": ["Corpus writer active"],
+                }
+            with closing(connect(authority)) as source:
+                selected, _ = source_manifest(root, source)
+            if selected != manifest:
+                raise ValueError("Corpus revision changed before audit lock")
         # Wait for complete import before auditing, avoiding a prolonged
         # read transaction that pins a growing WAL during initial ingestion.
         for item in manifest["files"]:
-            path = root / item["path"]
+            path = source_path(root, item, refreshed)
             if file_hash(path) != item["lfs"]["oid"]:
                 raise ValueError(f"Source checksum mismatch: {path}")
             columns = [
@@ -318,7 +388,7 @@ def audit(
             raise ValueError(
                 "Published ANN passage IDs differ from verified source coverage"
             )
-    verify_sqlite(database)
+        verify_sqlite(database)
     return report | {
         "verified_complete": True,
         "checks": [

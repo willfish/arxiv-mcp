@@ -12,7 +12,7 @@ import time
 import zlib
 
 import numpy as np
-from library import connect
+from library import connect, require_stable_corpus
 
 MODEL = "minishlab/potion-science-32M"
 MODEL_REVISION = "7366079845507de14a4330007cdfa01bb92bca52"
@@ -130,6 +130,7 @@ def generate(root, model, block_papers=1000, watch=False, max_blocks=None):
         connect(root / "library.sqlite3")
     ) as db:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require_stable_corpus(db)
         dataset_revision = db.execute(
             "SELECT value FROM settings WHERE key='revision'"
         ).fetchone()[0]

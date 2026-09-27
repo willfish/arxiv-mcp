@@ -21,6 +21,15 @@ def ingest(root, max_papers=None, watch=False):
         db = resources.enter_context(
             closing(connect(root / "library.sqlite3", write=True))
         )
+        if db.execute(
+            "SELECT 1 FROM settings "
+            "WHERE key IN ('refresh_revision','refresh_target') LIMIT 1"
+        ).fetchone():
+            print(
+                "Corpus managed by incremental refresh; initial import skipped",
+                flush=True,
+            )
+            return
         prior = db.execute(
             "SELECT value FROM settings WHERE key='revision'"
         ).fetchone()

@@ -20,7 +20,7 @@ from embeddings import (
     load_model,
     unpack_id,
 )
-from library import metadata, search_papers
+from library import metadata, require_stable_corpus, search_papers
 
 
 class SemanticSearch:
@@ -39,6 +39,7 @@ class SemanticSearch:
         return json.loads(path.read_text())
 
     def load(self, db):
+        require_stable_corpus(db)
         state = self.state()
         if not state:
             raise ValueError(

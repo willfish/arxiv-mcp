@@ -127,6 +127,7 @@ class IngestTest(unittest.TestCase):
             (root / "manifest.json").write_text(
                 json.dumps({"revision": "test", "files": [item]})
             )
+
             def interrupted_add(db, row):
                 if row["paper_id"] == "511":
                     raise RuntimeError("interrupted batch")

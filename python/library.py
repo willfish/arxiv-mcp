@@ -83,6 +83,74 @@ def add_paper(db, row):
     return True
 
 
+def update_paper(db, row):
+    """Upsert one verified paper inside the caller's checkpoint transaction."""
+    raw = row["text"].encode("utf-8")
+    sha = hashlib.sha256(raw).hexdigest()
+    if row.get("text_sha256") and sha != row["text_sha256"]:
+        raise ValueError(f'Text checksum mismatch: {row["paper_id"]}')
+    values = (
+        sha,
+        row.get("title") or "",
+        row.get("abstract") or "",
+        row.get("primary_category") or "",
+        row.get("license"),
+    )
+    prior = db.execute(
+        "SELECT id,sha256,title,abstract,category,license "
+        "FROM papers WHERE paper_id=?",
+        (row["paper_id"],),
+    ).fetchone()
+    if prior is None:
+        add_paper(db, row)
+        return "inserted"
+    if tuple(prior)[1:] == values:
+        return "unchanged"
+    # Contentless FTS5 requires the ORIGINAL tokens to remove an old entry.
+    if tuple(prior)[1:4] != values[:3]:
+        old = db.execute(
+            "SELECT body FROM papers WHERE id=?", (prior["id"],)
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO search(search,rowid,title,abstract,body) "
+            "VALUES('delete',?,?,?,?)",
+            (
+                prior["id"],
+                prior["title"],
+                prior["abstract"],
+                zlib.decompress(old).decode("utf-8"),
+            ),
+        )
+        db.execute(
+            "INSERT INTO search(rowid,title,abstract,body) VALUES(?,?,?,?)",
+            (prior["id"], values[1], values[2], row["text"]),
+        )
+    if prior["sha256"] != sha:
+        db.execute(
+            "UPDATE papers SET body=?,sha256=?,text_bytes=?,text_chars=? "
+            "WHERE id=?",
+            (
+                zlib.compress(raw, level=3),
+                sha,
+                len(raw),
+                len(row["text"]),
+                prior["id"],
+            ),
+        )
+    db.execute(
+        "UPDATE papers SET title=?,abstract=?,category=?,license=? WHERE id=?",
+        (*values[1:], prior["id"]),
+    )
+    return "updated"
+
+
+def require_stable_corpus(db):
+    if db.execute(
+        "SELECT 1 FROM settings WHERE key='refresh_target'"
+    ).fetchone():
+        raise ValueError("Corpus refresh in progress; resume it first")
+
+
 def metadata(row):
     return {
         k: row[k]
