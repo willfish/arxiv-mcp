@@ -20,7 +20,7 @@ arxiv status
 
 Commands return JSON. Status uses FTS5's transactionally maintained indexed-document count, labelled `count_basis`, rather than scanning the corpus. It is a progress report, not an independent integrity audit. `ARXIV_DATABASE` or `--database` selects the database; the default is `/srv/media/arxiv/library.sqlite3`. Paper offsets count Unicode characters. Follow `next_offset` until null for complete text. The source contains assembled LaTeX, not PDFs or every historical version.
 
-The native server supports BM25 only. Existing embedding artifacts are not deleted or regenerated. Search excerpts currently show the first 800 characters, not a match-centred fragment. Publication readiness checks and live wrapper migration are not yet integrated into the native path.
+The native server supports BM25 only. Search returns only each paper's `paper_id` and `title`; use `show` (MCP `paper`) for metadata and text. Search does not read or decompress paper bodies. Existing embedding artifacts are not deleted or regenerated. Publication readiness checks are not yet integrated into the native path.
 
 ## MCP
 

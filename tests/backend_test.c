@@ -58,6 +58,10 @@ int main(int argc, char **argv) {
   args = cJSON_Parse("{\"query\":\"rarephysicalterm tail\",\"category\":\"physics\"}");
   out = success(tool_search(args));
   assert(cJSON_GetArraySize(cJSON_GetObjectItem(out, "papers")) == 1);
+  cJSON *hit = cJSON_GetArrayItem(cJSON_GetObjectItem(out, "papers"), 0);
+  assert(cJSON_GetArraySize(hit) == 2);
+  assert(!strcmp(arg_str(hit, "paper_id"), "old/001"));
+  assert(!strcmp(arg_str(hit, "title"), "Title"));
   cJSON_Delete(out); cJSON_Delete(args);
   args = cJSON_Parse("{\"query\":\"rarephysicalterm\",\"category\":\"math\"}");
   out = success(tool_search(args));
@@ -94,6 +98,18 @@ int main(int argc, char **argv) {
   out = success(tool_status(NULL)); assert(arg_int(out, "papers", -1) == 0); cJSON_Delete(out);
   assert(sqlite3_prepare_v2(db, "INSERT INTO search(rowid,title,abstract,body) VALUES(1,'Title','Abstract',?)", -1, &statement, NULL) == SQLITE_OK);
   sqlite3_bind_text(statement, 1, body, -1, SQLITE_TRANSIENT);
+  assert(sqlite3_step(statement) == SQLITE_DONE); sqlite3_finalize(statement);
+  /* Search must not read/decompress a body, even one that cannot be decoded. */
+  assert(sqlite3_exec(db, "UPDATE papers SET body=X'00' WHERE id=1", NULL, NULL, NULL) == SQLITE_OK);
+  args = cJSON_Parse("{\"query\":\"uniquetailneedle\"}");
+  out = success(tool_search(args));
+  assert(cJSON_GetArraySize(cJSON_GetObjectItem(out, "papers")) == 1);
+  cJSON_Delete(out); cJSON_Delete(args);
+  args = cJSON_Parse("{\"paper_id\":\"old/001\"}");
+  bad = tool_paper(args); assert(bad.is_error); result_free(bad); cJSON_Delete(args);
+  /* Restore for the real subprocess protocol suite. */
+  assert(sqlite3_prepare_v2(db, "UPDATE papers SET body=? WHERE id=1", -1, &statement, NULL) == SQLITE_OK);
+  sqlite3_bind_blob(statement, 1, compressed, (int)length, SQLITE_TRANSIENT);
   assert(sqlite3_step(statement) == SQLITE_DONE); sqlite3_finalize(statement);
   sqlite3_close(db);
   if (argc != 2) unlink(path);

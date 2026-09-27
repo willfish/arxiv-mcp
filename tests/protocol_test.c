@@ -53,7 +53,12 @@ int main(void) {
   assert(cJSON_GetArraySize(cJSON_GetObjectItem(cJSON_GetObjectItem(value, "result"), "tools")) == 3); cJSON_Delete(value);
   value = request("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"query\":\"rarephysicalterm\"}}}");
   cJSON *payload = tool_payload(value);
-  assert(cJSON_GetArraySize(cJSON_GetObjectItem(payload, "papers")) == 1); cJSON_Delete(payload); cJSON_Delete(value);
+  assert(cJSON_GetArraySize(cJSON_GetObjectItem(payload, "papers")) == 1);
+  cJSON *hit = cJSON_GetArrayItem(cJSON_GetObjectItem(payload, "papers"), 0);
+  assert(cJSON_GetArraySize(hit) == 2);
+  assert(!strcmp(arg_str(hit, "paper_id"), "old/001"));
+  assert(!strcmp(arg_str(hit, "title"), "Title"));
+  cJSON_Delete(payload); cJSON_Delete(value);
   value = request("{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"paper\",\"arguments\":{\"paper_id\":\"old/001\",\"offset\":1,\"length\":2}}}");
   payload = tool_payload(value); assert(!strcmp(arg_str(payload, "text"), "β😀")); cJSON_Delete(payload); cJSON_Delete(value);
   value = request("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"library_status\"}}");

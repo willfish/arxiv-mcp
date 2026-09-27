@@ -86,8 +86,7 @@ static size_t character_offset(const char *text, size_t bytes, size_t chars) {
   }
   return pos;
 }
-static cJSON *read_paper(const char *id, sqlite3_int64 rowid, int offset, int length,
-                         int excerpt, double score) {
+static cJSON *read_paper(const char *id, sqlite3_int64 rowid, int offset, int length) {
   const char *columns = "SELECT paper_id,title,abstract,category,license,sha256,text_chars,text_bytes,body FROM papers WHERE ";
   char sql[256];
   snprintf(sql, sizeof sql, "%s%s", columns, id ? "paper_id=?" : "id=?");
@@ -122,10 +121,9 @@ static cJSON *read_paper(const char *id, sqlite3_int64 rowid, int offset, int le
   size_t start = character_offset(text, (size_t)bytes, (size_t)offset);
   size_t end = start + character_offset(text + start, (size_t)bytes - start, (size_t)length);
   text[end] = 0;
-  cJSON_AddStringToObject(out, excerpt ? "excerpt" : "text", text + start);
-  cJSON_AddNumberToObject(out, excerpt ? "excerpt_offset" : "offset", offset);
-  if (excerpt) cJSON_AddNumberToObject(out, "bm25", -score);
-  else if ((sqlite3_int64)offset + length < chars)
+  cJSON_AddStringToObject(out, "text", text + start);
+  cJSON_AddNumberToObject(out, "offset", offset);
+  if ((sqlite3_int64)offset + length < chars)
     cJSON_AddNumberToObject(out, "next_offset", offset + length);
   else cJSON_AddNullToObject(out, "next_offset");
   free(text); sqlite3_finalize(row); return out;
@@ -136,7 +134,7 @@ Result tool_paper(const cJSON *args) {
   if (!id || !*id || offset < 0 || length < 1 || length > 50000)
     return result_err("paper_id required; offset >= 0; length 1..50000");
   if (!open_database()) return result_err(failure);
-  cJSON *out = read_paper(id, 0, offset, length, 0, 0);
+  cJSON *out = read_paper(id, 0, offset, length);
   return out ? json_result(out) : result_err("Paper missing or body corrupt");
 }
 static char *expression(const char *query) {
@@ -184,22 +182,32 @@ Result tool_search(const cJSON *args) {
   sqlite3_bind_int(statement, parameter, limit);
   deadline = now() + 30;
   sqlite3_progress_handler(database, 10000, expired, NULL);
-  sqlite3_int64 ids[50]; double scores[50]; int count = 0, rc;
-  while ((rc = sqlite3_step(statement)) == SQLITE_ROW && count < limit) {
-    ids[count] = sqlite3_column_int64(statement, 0);
-    scores[count++] = sqlite3_column_double(statement, 1);
-  }
+  sqlite3_int64 ids[50]; int count = 0, rc;
+  while ((rc = sqlite3_step(statement)) == SQLITE_ROW && count < limit)
+    ids[count++] = sqlite3_column_int64(statement, 0);
   sqlite3_finalize(statement);
   sqlite3_progress_handler(database, 0, NULL, NULL);
   if (rc != SQLITE_DONE) return result_err(sqlite3_errmsg(database));
   cJSON *out = cJSON_CreateObject();
   cJSON_AddStringToObject(out, "mode", "bm25");
   cJSON *papers = cJSON_AddArrayToObject(out, "papers");
-  for (int i = 0; i < count; ++i) {
-    cJSON *paper = read_paper(NULL, ids[i], 0, 800, 1, scores[i]);
-    if (!paper) { cJSON_Delete(out); return result_err("Matched paper missing or corrupt"); }
-    cJSON_AddItemToArray(papers, paper);
+  /* Discovery needs identifiers and titles, never compressed bodies. */
+  if (sqlite3_prepare_v2(database, "SELECT paper_id,title FROM papers WHERE id=?", -1, &statement, NULL) != SQLITE_OK) {
+    cJSON_Delete(out); return result_err(sqlite3_errmsg(database));
   }
+  for (int i = 0; i < count; ++i) {
+    sqlite3_bind_int64(statement, 1, ids[i]);
+    if (sqlite3_step(statement) != SQLITE_ROW) {
+      sqlite3_finalize(statement); cJSON_Delete(out);
+      return result_err("Matched paper metadata missing or unreadable");
+    }
+    cJSON *paper = cJSON_CreateObject();
+    field(paper, "paper_id", statement, 0);
+    field(paper, "title", statement, 1);
+    cJSON_AddItemToArray(papers, paper);
+    sqlite3_reset(statement);
+  }
+  sqlite3_finalize(statement);
   return json_result(out);
 }
 Result tool_status(const cJSON *args) {
