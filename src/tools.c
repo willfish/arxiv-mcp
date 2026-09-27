@@ -21,12 +21,34 @@ static double now(void) {
   return (double)t.tv_sec + (double)t.tv_nsec / 1e9;
 }
 static int expired(void *unused) { (void)unused; return now() > deadline; }
+static void document_count(const Fts5ExtensionApi *api, Fts5Context *fts,
+                           sqlite3_context *context, int argc, sqlite3_value **argv) {
+  (void)argc; (void)argv;
+  sqlite3_int64 rows = 0;
+  int rc = api->xRowCount(fts, &rows);
+  if (rc == SQLITE_OK) sqlite3_result_int64(context, rows);
+  else sqlite3_result_error_code(context, rc);
+}
+static int register_count(void) {
+  fts5_api *api = NULL;
+  sqlite3_stmt *statement = NULL;
+  int rc = sqlite3_prepare_v2(database, "SELECT fts5(?1)", -1, &statement, NULL);
+  if (rc != SQLITE_OK) return rc;
+  sqlite3_bind_pointer(statement, 1, &api, "fts5_api_ptr", NULL);
+  sqlite3_step(statement);
+  sqlite3_finalize(statement);
+  return api ? api->xCreateFunction(api, "arxiv_document_count", NULL, document_count, NULL) : SQLITE_ERROR;
+}
 static int open_database(void) {
   if (database) return 1;
   const char *path = getenv("ARXIV_DATABASE");
   if (!path || !*path) path = "/srv/media/arxiv/library.sqlite3";
   if (sqlite3_open_v2(path, &database, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
     snprintf(failure, sizeof failure, "%s", sqlite3_errmsg(database));
+    sqlite3_close(database); database = NULL; return 0;
+  }
+  if (register_count() != SQLITE_OK) {
+    snprintf(failure, sizeof failure, "SQLite FTS5 row-count API unavailable");
     sqlite3_close(database); database = NULL; return 0;
   }
   sqlite3_busy_timeout(database, 30000);
@@ -185,9 +207,13 @@ Result tool_status(const cJSON *args) {
   if (!open_database()) return result_err(failure);
   cJSON *out = cJSON_CreateObject();
   sqlite3_stmt *row = NULL;
-  if (sqlite3_prepare_v2(database, "SELECT count(*) FROM papers", -1, &row, NULL) != SQLITE_OK) goto error;
-  if (sqlite3_step(row) != SQLITE_ROW) goto error;
-  cJSON_AddNumberToObject(out, "papers", (double)sqlite3_column_int64(row, 0));
+  /* FTS5 maintains this count transactionally. Do not scan millions of
+     scattered index pages just to report status on rotating NAS storage. */
+  if (sqlite3_prepare_v2(database, "SELECT arxiv_document_count(search) FROM search LIMIT 1", -1, &row, NULL) != SQLITE_OK) goto error;
+  int first = sqlite3_step(row);
+  if (first != SQLITE_ROW && first != SQLITE_DONE) goto error;
+  cJSON_AddNumberToObject(out, "papers", first == SQLITE_ROW ? (double)sqlite3_column_int64(row, 0) : 0);
+  cJSON_AddStringToObject(out, "count_basis", "indexed_documents");
   sqlite3_finalize(row); row = NULL;
   if (sqlite3_prepare_v2(database, "SELECT key,value FROM settings", -1, &row, NULL) != SQLITE_OK) goto error;
   cJSON *settings = cJSON_AddObjectToObject(out, "settings"); int rc;

@@ -83,7 +83,19 @@ int main(int argc, char **argv) {
     cJSON_Delete(out); cJSON_Delete(args);
   } while (offset >= 0);
   assert(pages == 4 && !strcmp(rebuilt, body));
-  out = success(tool_status(NULL)); assert(arg_int(out, "papers", 0) == 1); cJSON_Delete(out);
+  out = success(tool_status(NULL)); assert(arg_int(out, "papers", 0) == 1);
+  assert(!strcmp(arg_str(out, "count_basis"), "indexed_documents")); cJSON_Delete(out);
+  /* Exercise FTS5's maintained count, including empty index, rather than
+     a row scan that timed out on the live multi-million-paper NAS corpus. */
+  assert(sqlite3_open(path, &db) == SQLITE_OK);
+  assert(sqlite3_exec(db, "INSERT INTO search(rowid,title,abstract,body) VALUES(2,'','','')", NULL, NULL, NULL) == SQLITE_OK);
+  out = success(tool_status(NULL)); assert(arg_int(out, "papers", 0) == 2); cJSON_Delete(out);
+  assert(sqlite3_exec(db, "INSERT INTO search(search) VALUES('delete-all')", NULL, NULL, NULL) == SQLITE_OK);
+  out = success(tool_status(NULL)); assert(arg_int(out, "papers", -1) == 0); cJSON_Delete(out);
+  assert(sqlite3_prepare_v2(db, "INSERT INTO search(rowid,title,abstract,body) VALUES(1,'Title','Abstract',?)", -1, &statement, NULL) == SQLITE_OK);
+  sqlite3_bind_text(statement, 1, body, -1, SQLITE_TRANSIENT);
+  assert(sqlite3_step(statement) == SQLITE_DONE); sqlite3_finalize(statement);
+  sqlite3_close(db);
   if (argc != 2) unlink(path);
   puts("PASS: native SQLite BM25, category filters, Unicode pagination, metadata, status and input limits");
   return 0;
