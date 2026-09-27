@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+  <title id="title">arxiv-mcp</title>
+  <desc id="desc">Research archive interface. Full-text discovery, original-source retrieval. Native C, SQLite FTS5, MCP over stdio.</desc>
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#2e3f3c" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="340" rx="4" fill="#152522"/>
+  <rect x="804" y="0" width="396" height="340" fill="url(#grid)"/>
+  <path d="M804 0V340M40 266H1160" stroke="#3c524b"/>
+  <g font-family="DejaVu Sans Mono, monospace">
+    <text x="40" y="43" font-size="12" letter-spacing="2" fill="#a8cbb6">RESEARCH ARCHIVE INTERFACE</text>
+    <text x="40" y="143" font-size="68" font-weight="700" letter-spacing="-4" fill="#f0f3e7">arxiv-mcp</text>
+    <text x="41" y="192" font-size="18" fill="#b7c6bc">Full-text discovery. Original-source retrieval.</text>
+    <text x="41" y="226" font-size="13" fill="#95ada2">Native C &#183; SQLite FTS5 &#183; MCP over stdio</text>
+    <text x="40" y="309" font-size="12" letter-spacing="1" fill="#a8cbb6">01 / DISCOVER</text>
+    <text x="287" y="309" font-size="12" letter-spacing="1" fill="#a8cbb6">02 / INSPECT</text>
+    <text x="522" y="309" font-size="12" letter-spacing="1" fill="#a8cbb6">03 / VERIFY</text>
+  </g>
+  <g fill="#152522" stroke="#9db9a7" stroke-width="1.4">
+    <rect x="931" y="49" width="156" height="181" rx="2"/>
+    <rect x="910" y="66" width="156" height="181" rx="2"/>
+    <rect x="889" y="83" width="156" height="164" rx="2"/>
+  </g>
+  <rect x="906" y="123" width="121" height="20" fill="#304a3d"/>
+  <g stroke="#89a394" stroke-width="1.3">
+    <path d="M906 107H952M906 132H1014M906 157H1027M906 169H1027M906 181H990M906 208H969M982 208H1027M906 220H1005"/>
+    <path d="M849 61H864M856.5 53.5V68.5M1112 221H1127M1119.5 213.5V228.5"/>
+  </g>
+  <text x="852" y="309" font-family="DejaVu Sans Mono, monospace" font-size="12" letter-spacing="1" fill="#95ada2">LITERAL MATCH / EXACT TEXT</text>
+</svg>

@@ -1,3 +1,4 @@
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -11,12 +12,13 @@ import numpy as np
 
 from audit import index_ids
 from build_index import build, normalized, prune_snapshots
-from embeddings import file_hash, vector_id
-from semantic import SemanticSearch
+from embeddings import file_hash, generate, vector_id
+from fixtures import ConceptModel, paper
+from library import add_paper, connect
 
 
 class IndexTest(unittest.TestCase):
-    def test_actual_ivfpq_mmap_reranking_ids_and_retention(self):
+    def test_actual_ivfpq_mmap_candidates_ids_and_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             folder = root / "embeddings"
@@ -53,15 +55,12 @@ class IndexTest(unittest.TestCase):
             self.assertEqual(index.ntotal, len(ids))
             np.testing.assert_array_equal(np.sort(index_ids(index)), ids)
             index.nprobe = 64
-            engine = SemanticSearch(root)
             queries = normalized(values[[3, 110, 720, 5020, 11999]])
             _, candidates = index.search(queries, 200)
-            for expected, query, selected in zip(
-                ids[[3, 110, 720, 5020, 11999]], queries, candidates
+            for expected, selected in zip(
+                ids[[3, 110, 720, 5020, 11999]], candidates
             ):
-                ranked = engine.rerank(query, selected, info)
-                self.assertEqual(ranked[0][1], expected)
-                self.assertGreater(ranked[0][0], 0.999)
+                self.assertIn(expected, selected)
             # Existing mmap readers remain usable when an obsolete generation
             # is unlinked. The current pointer and newest two files survive.
             for number in [13000, 14000]:
@@ -80,6 +79,36 @@ class IndexTest(unittest.TestCase):
             self.assertTrue(unrelated.exists())
             _, after = index.search(queries[:1], 200)
             self.assertIn(ids[3], after[0])
+
+    def test_idempotent_publication_and_append_preserve_old_readers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "manifest.json").write_text(json.dumps({"files": []}))
+            with closing(connect(root / "library.sqlite3", write=True)) as db:
+                with db:
+                    db.execute(
+                        "INSERT INTO settings VALUES('revision','test')"
+                    )
+                    add_paper(db, paper("dog", "dogs"))
+                    add_paper(db, paper("space", "galaxies"))
+                generate(root, ConceptModel())
+                first = build(root)
+                self.assertEqual(first["passages"], 2)
+                self.assertEqual(build(root), first)
+                reader = faiss.read_index(
+                    str(root / "embeddings" / first["path"])
+                )
+                with db:
+                    add_paper(db, paper("another", "dogs and galaxies"))
+                generate(root, ConceptModel())
+                second = build(root)
+                self.assertNotEqual(first["path"], second["path"])
+                self.assertEqual(second["passages"], 3)
+                self.assertEqual(reader.ntotal, 2)
+                np.testing.assert_array_equal(
+                    np.sort(index_ids(reader)),
+                    [vector_id(1, 0), vector_id(2, 0)],
+                )
 
     def test_recent_snapshots_and_symlinks_are_not_pruned(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -14,10 +14,13 @@ import pyarrow.parquet as pq
 from audit import audit
 from embeddings import file_hash
 from ingest import ingest
-from library import connect, get_paper, search_papers
-from server import create_server
+from library import connect
+from fixtures import (
+    stored_paper as get_paper,
+    matching_papers as search_papers,
+)
 from snapshot import publish, resolve_snapshot
-from test_library import paper
+from fixtures import paper
 
 
 class SnapshotTest(unittest.TestCase):
@@ -89,17 +92,10 @@ class SnapshotTest(unittest.TestCase):
                 self.assertNotEqual(first, self.resolve())
                 self.assertTrue(first.exists())
                 self.assertEqual(get_paper(reader, "a")["paper_id"], "a")
-            with patch("snapshot.resolve_snapshot", return_value=first) as pin:
-                create_server(None, self.root, self.destination)
-                pin.assert_called_once_with(self.destination, self.root)
 
-    def test_missing_readiness_and_required_root_fail_closed(self):
+    def test_missing_readiness_fails_closed(self):
         with self.assertRaises(FileNotFoundError):
             self.resolve()
-        with self.assertRaisesRegex(ValueError, "requires --corpus-root"):
-            create_server(None, serving_root=self.destination)
-        with self.assertRaises(FileNotFoundError):
-            create_server(None, self.root, self.destination)
 
     def test_stale_receipt_and_modified_database_rejected(self):
         self.publish()

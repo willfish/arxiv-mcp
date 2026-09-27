@@ -86,14 +86,11 @@ static size_t character_offset(const char *text, size_t bytes, size_t chars) {
   }
   return pos;
 }
-static cJSON *read_paper(const char *id, sqlite3_int64 rowid, int offset, int length) {
-  const char *columns = "SELECT paper_id,title,abstract,category,license,sha256,text_chars,text_bytes,body FROM papers WHERE ";
-  char sql[256];
-  snprintf(sql, sizeof sql, "%s%s", columns, id ? "paper_id=?" : "id=?");
+static cJSON *read_paper(const char *id, int offset, int length) {
+  const char *sql = "SELECT paper_id,title,abstract,category,license,sha256,text_chars,text_bytes,body FROM papers WHERE paper_id=?";
   sqlite3_stmt *row = NULL;
   if (sqlite3_prepare_v2(database, sql, -1, &row, NULL) != SQLITE_OK) return NULL;
-  if (id) sqlite3_bind_text(row, 1, id, -1, SQLITE_TRANSIENT);
-  else sqlite3_bind_int64(row, 1, rowid);
+  sqlite3_bind_text(row, 1, id, -1, SQLITE_TRANSIENT);
   if (sqlite3_step(row) != SQLITE_ROW) { sqlite3_finalize(row); return NULL; }
   sqlite3_int64 bytes = sqlite3_column_int64(row, 7);
   if (bytes < 0 || (uint64_t)bytes >= SIZE_MAX || (uint64_t)bytes >= ULONG_MAX) {
@@ -134,7 +131,7 @@ Result tool_paper(const cJSON *args) {
   if (!id || !*id || offset < 0 || length < 1 || length > 50000)
     return result_err("paper_id required; offset >= 0; length 1..50000");
   if (!open_database()) return result_err(failure);
-  cJSON *out = read_paper(id, 0, offset, length);
+  cJSON *out = read_paper(id, offset, length);
   return out ? json_result(out) : result_err("Paper missing or body corrupt");
 }
 static char *expression(const char *query) {

@@ -41,10 +41,6 @@ def vector_id(row_id, passage):
     return (row_id << 32) | passage
 
 
-def unpack_id(value):
-    return int(value) >> 32, int(value) & (2**32 - 1)
-
-
 def file_hash(path):
     h = hashlib.sha256()
     with Path(path).open("rb") as f:

@@ -18,8 +18,7 @@ from build_index import build
 from embeddings import file_hash, generate, spans
 from ingest import ingest
 from library import connect
-from test_library import paper
-from test_semantic import ConceptModel
+from fixtures import ConceptModel, paper
 
 
 class AuditTest(unittest.TestCase):

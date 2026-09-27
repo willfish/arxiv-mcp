@@ -6,22 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from library import add_paper, connect, get_paper, search_papers, status
+from fixtures import import_state, matching_papers, paper, stored_paper
+from library import add_paper, connect
 from ingest import ingest
-
-
-def paper(
-    pid="test/001", text="rarephysicalterm and quantum dynamics λ " * 30
-):
-    return {
-        "paper_id": pid,
-        "title": "A paper",
-        "abstract": "An abstract",
-        "text": text,
-        "primary_category": "physics",
-        "license": "test",
-        "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
-    }
 
 
 class LibraryTest(unittest.TestCase):
@@ -34,33 +21,28 @@ class LibraryTest(unittest.TestCase):
         self.db.close()
         self.tmp.cleanup()
 
-    def test_full_body_search_and_exact_pagination(self):
+    def test_ingestion_preserves_complete_body_and_indexes_its_tail(self):
         row = paper(text="preamble " * 10000 + "rarephysicalterm λ at the end")
         with self.db:
             add_paper(self.db, row)
-        result = search_papers(self.db, "rarephysicalterm")[0]
-        self.assertEqual(result["paper_id"], row["paper_id"])
-        self.assertIn("rarephysicalterm", result["excerpt"])
-        text, offset = "", 0
-        while offset is not None:
-            part = get_paper(self.db, row["paper_id"], offset, 777)
-            text += part["text"]
-            offset = part["next_offset"]
-        self.assertEqual(text, row["text"])
         self.assertEqual(
-            get_paper(self.db, row["paper_id"], len(text) + 10)["text"], ""
+            matching_papers(self.db, "rarephysicalterm"),
+            [{"paper_id": row["paper_id"]}],
+        )
+        self.assertEqual(
+            stored_paper(self.db, row["paper_id"])["text"], row["text"]
         )
 
     def test_filters_and_duplicate_integrity(self):
         with self.db:
             self.assertTrue(add_paper(self.db, paper()))
             self.assertFalse(add_paper(self.db, paper()))
-        self.assertEqual(status(self.db)["papers"], 1)
+        self.assertEqual(import_state(self.db)["papers"], 1)
         self.assertEqual(
-            len(search_papers(self.db, "quantum", category="physics")), 1
+            len(matching_papers(self.db, "quantum", category="physics")), 1
         )
         self.assertEqual(
-            search_papers(self.db, "quantum", category="math"), []
+            matching_papers(self.db, "quantum", category="math"), []
         )
         with self.assertRaises(ValueError):
             add_paper(self.db, paper(text="changed"))
@@ -69,37 +51,13 @@ class LibraryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             add_paper(self.db, wrong)
 
-    def test_ranking_fetches_only_selected_bodies(self):
-        with self.db:
-            for i in range(30):
-                add_paper(self.db, paper(str(i)))
-        statements = []
-        self.db.set_trace_callback(statements.append)
-        results = search_papers(self.db, "quantum", limit=2)
-        self.db.set_trace_callback(None)
-        self.assertEqual([r["paper_id"] for r in results], ["0", "1"])
-        body_reads = [
-            sql
-            for sql in statements
-            if sql.startswith("SELECT * FROM papers WHERE id=")
-        ]
-        self.assertEqual(len(body_reads), 2)
-        self.assertFalse(any("SELECT p.*" in sql for sql in statements))
-
-    def test_inputs_missing_readonly_and_rollback(self):
-        for query in ("", "*", "x " * 33, "a" * 1001):
-            with self.assertRaises(ValueError):
-                search_papers(self.db, query)
-        with self.assertRaises(ValueError):
-            get_paper(self.db, "missing", -1)
-        with self.assertRaises(KeyError):
-            get_paper(self.db, "missing")
+    def test_readonly_and_transaction_rollback(self):
         with self.assertRaises(RuntimeError):
             with self.db:
                 add_paper(self.db, paper())
                 raise RuntimeError("interrupted transaction")
-        self.assertEqual(status(self.db)["papers"], 0)
-        self.assertEqual(search_papers(self.db, "quantum"), [])
+        self.assertEqual(import_state(self.db)["papers"], 0)
+        self.assertEqual(matching_papers(self.db, "quantum"), [])
         ro = connect(self.path)
         with self.assertRaises(sqlite3.OperationalError):
             ro.execute("DELETE FROM papers")
@@ -137,30 +95,24 @@ class IngestTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "interrupted batch"):
                     ingest(root)
             db = connect(root / "library.sqlite3")
-            self.assertEqual(status(db)["papers"], 500)
-            self.assertEqual(status(db)["imports"][0]["rows_done"], 500)
-            self.assertEqual(
-                db.execute(
-                    "SELECT count(*) FROM search "
-                    "WHERE search MATCH 'rarephysicalterm'"
-                ).fetchone()[0],
-                500,
-            )
+            self.assertEqual(import_state(db)["papers"], 500)
+            self.assertEqual(import_state(db)["imports"][0]["rows_done"], 500)
+            self.assertEqual(len(matching_papers(db, "rarephysicalterm")), 500)
             db.close()
             ingest(root, max_papers=13)
             db = connect(root / "library.sqlite3")
-            self.assertEqual(status(db)["papers"], 513)
-            self.assertEqual(status(db)["imports"][0]["rows_done"], 513)
+            self.assertEqual(import_state(db)["papers"], 513)
+            self.assertEqual(import_state(db)["imports"][0]["rows_done"], 513)
             db.close()
             ingest(root)
             ingest(root)
             db = connect(root / "library.sqlite3")
-            self.assertEqual(status(db)["papers"], 1257)
-            self.assertEqual(status(db)["imports"][0]["complete"], 1)
-            self.assertEqual(len(search_papers(db, "quantum", limit=50)), 50)
+            self.assertEqual(import_state(db)["papers"], 1257)
+            self.assertEqual(import_state(db)["imports"][0]["complete"], 1)
+            self.assertEqual(len(matching_papers(db, "quantum")), 1257)
             for row in rows:
                 self.assertEqual(
-                    get_paper(db, row["paper_id"])["text"], row["text"]
+                    stored_paper(db, row["paper_id"])["text"], row["text"]
                 )
             self.assertEqual(
                 db.execute("PRAGMA integrity_check").fetchone()[0], "ok"

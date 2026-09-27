@@ -28,7 +28,6 @@ let
   };
   python = python3.withPackages (p: [
     p.pyarrow
-    p.mcp
     p.faiss
     model2vec
   ]);
@@ -57,9 +56,9 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p "$out/lib/arxiv-library" "$out/bin"
-    cp audit.py snapshot.py refresh.py prepare.py download.py library.py ingest.py embeddings.py build_index.py semantic.py server.py \
+    cp audit.py snapshot.py refresh.py prepare.py download.py library.py ingest.py embeddings.py build_index.py \
       model-lock.json manifest.json "$out/lib/arxiv-library/"
-    for pair in refresh:refresh snapshot:snapshot audit:audit prepare:prepare server:server download:download ingest:ingest embeddings:embeddings index:build_index; do
+    for pair in refresh:refresh snapshot:snapshot audit:audit prepare:prepare download:download ingest:ingest embeddings:embeddings index:build_index; do
       name="''${pair%%:*}"
       script="''${pair#*:}"
       makeWrapper ${python}/bin/python "$out/bin/arxiv-library-$name" \

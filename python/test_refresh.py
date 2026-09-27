@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,7 +17,11 @@ import pyarrow.parquet as pq
 from audit import audit
 from download import digest, download_file
 from ingest import ingest
-from library import connect, get_paper, search_papers, update_paper
+from library import connect, update_paper
+from fixtures import (
+    stored_paper as get_paper,
+    matching_papers as search_papers,
+)
 from refresh import (
     API,
     main,
@@ -27,7 +33,7 @@ from refresh import (
     validate_manifest,
 )
 from snapshot import publish, resolve_snapshot
-from test_library import paper
+from fixtures import ConceptModel, paper
 
 
 class RefreshTest(unittest.TestCase):
@@ -246,6 +252,17 @@ class RefreshTest(unittest.TestCase):
         receipt = publish(self.root, destination)
         self.assertEqual(receipt["revision"], target["revision"])
         path = resolve_snapshot(destination, self.root)
+        resolved = subprocess.check_output(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("snapshot.py")),
+                str(self.root),
+                str(destination),
+                "--resolve",
+            ],
+            text=True,
+        ).strip()
+        self.assertEqual(resolved, str(path))
         with closing(connect(path)) as db:
             self.assertTrue(search_papers(db, "oldneedle"))
         with self.database() as db, db:
@@ -414,10 +431,8 @@ class RefreshTest(unittest.TestCase):
         with self.database() as db:
             self.assertEqual(source_manifest(self.root, db), (target, True))
 
-    def test_embedding_locks_and_pending_semantic_guard(self):
+    def test_embedding_locks_and_pending_generation_guard(self):
         from embeddings import generate
-        from semantic import SemanticSearch
-        from test_semantic import ConceptModel
 
         folder = self.root / "embeddings"
         folder.mkdir()
@@ -432,10 +447,6 @@ class RefreshTest(unittest.TestCase):
             self.apply(self.target())
         with self.assertRaisesRegex(ValueError, "progress"):
             generate(self.root, ConceptModel(), max_blocks=0)
-        with self.database() as db, self.assertRaisesRegex(
-            ValueError, "progress"
-        ):
-            SemanticSearch(self.root).load(db)
 
     def test_snapshot_receipt_becomes_stale_after_a_refresh(self):
         destination = self.folder / "serving"

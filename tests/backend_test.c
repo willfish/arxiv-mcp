@@ -71,6 +71,22 @@ int main(int argc, char **argv) {
   Result bad = tool_search(args); assert(bad.is_error); result_free(bad); cJSON_Delete(args);
   args = cJSON_Parse("{\"query\":\"tail\",\"limit\":51}");
   bad = tool_search(args); assert(bad.is_error); result_free(bad); cJSON_Delete(args);
+  const char *invalid_queries[] = {"", "*", "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x"};
+  for (size_t i = 0; i < sizeof invalid_queries / sizeof *invalid_queries; ++i) {
+    args = cJSON_CreateObject(); cJSON_AddStringToObject(args, "query", invalid_queries[i]);
+    bad = tool_search(args); assert(bad.is_error); result_free(bad); cJSON_Delete(args);
+  }
+  char oversized[1002]; memset(oversized, 'a', 1001); oversized[1001] = 0;
+  args = cJSON_CreateObject(); cJSON_AddStringToObject(args, "query", oversized);
+  bad = tool_search(args); assert(bad.is_error); result_free(bad); cJSON_Delete(args);
+  const char *invalid_papers[] = {
+    "{\"paper_id\":\"missing\"}", "{\"paper_id\":\"old/001\",\"offset\":-1}",
+    "{\"paper_id\":\"old/001\",\"length\":0}", "{\"paper_id\":\"old/001\",\"length\":50001}"
+  };
+  for (size_t i = 0; i < sizeof invalid_papers / sizeof *invalid_papers; ++i) {
+    args = cJSON_Parse(invalid_papers[i]);
+    bad = tool_paper(args); assert(bad.is_error); result_free(bad); cJSON_Delete(args);
+  }
   args = cJSON_Parse("{\"query\":\"uniquetailneedle\"}");
   out = success(tool_search(args));
   assert(cJSON_GetArraySize(cJSON_GetObjectItem(out, "papers")) == 1);

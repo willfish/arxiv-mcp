@@ -195,5 +195,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
     parser.add_argument("destination", type=Path)
+    parser.add_argument(
+        "--resolve",
+        action="store_true",
+        help="Validate the existing receipt and print its pinned database path; do not publish",
+    )
     args = parser.parse_args()
-    print(json.dumps(publish(args.root, args.destination), indent=2))
+    if args.resolve:
+        print(resolve_snapshot(args.destination, args.root))
+    else:
+        print(json.dumps(publish(args.root, args.destination), indent=2))

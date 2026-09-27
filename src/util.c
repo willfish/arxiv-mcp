@@ -1,15 +1,12 @@
 #include "common.h"
 
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <stdarg.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -22,15 +19,6 @@ Result result_ok(char *text) {
 Result result_err(const char *msg) {
   Result r = {strdup(msg ? msg : "error"), 1};
   return r;
-}
-
-Result result_errf(const char *fmt, ...) {
-  char buf[1024];
-  va_list ap;
-  va_start(ap, fmt);
-  vsnprintf(buf, sizeof buf, fmt, ap);
-  va_end(ap);
-  return result_err(buf);
 }
 
 void result_free(Result r) { free(r.text); }
@@ -83,10 +71,6 @@ static int append_fd(char **buf, size_t *len, size_t *cap, int fd, size_t max) {
   *len += (size_t)n;
   (*buf)[*len] = 0;
   return 0;
-}
-
-int run_cmd(char *const argv[], Capture *cap) {
-  return run_cmd_input(argv, cap, NULL);
 }
 
 int run_cmd_input(char *const argv[], Capture *cap, const char *input) {
@@ -192,16 +176,4 @@ int arg_int(const cJSON *args, const char *key, int fallback) {
   if (!args) return fallback;
   const cJSON *item = cJSON_GetObjectItemCaseSensitive(args, key);
   return cJSON_IsNumber(item) ? item->valueint : fallback;
-}
-
-int arg_bool(const cJSON *args, const char *key) {
-  if (!args) return 0;
-  const cJSON *item = cJSON_GetObjectItemCaseSensitive(args, key);
-  return cJSON_IsTrue(item);
-}
-
-const cJSON *arg_array(const cJSON *args, const char *key) {
-  if (!args) return NULL;
-  const cJSON *item = cJSON_GetObjectItemCaseSensitive(args, key);
-  return cJSON_IsArray(item) ? item : NULL;
 }

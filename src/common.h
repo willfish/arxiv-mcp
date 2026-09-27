@@ -16,7 +16,6 @@ typedef struct {
 
 Result result_ok(char *text);
 Result result_err(const char *msg);
-Result result_errf(const char *fmt, ...);
 void result_free(Result r);
 
 typedef struct {
@@ -36,10 +35,7 @@ typedef struct {
 } Capture;
 
 void capture_free(Capture *c);
-int run_cmd(char *const argv[], Capture *cap);
 int run_cmd_input(char *const argv[], Capture *cap, const char *input);
 
 const char *arg_str(const cJSON *args, const char *key);
 int arg_int(const cJSON *args, const char *key, int fallback);
-int arg_bool(const cJSON *args, const char *key);
-const cJSON *arg_array(const cJSON *args, const char *key);

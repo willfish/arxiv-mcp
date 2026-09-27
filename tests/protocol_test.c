@@ -28,12 +28,12 @@ int main(void) {
   assert(snprintf(binary, sizeof binary, "%s/arxiv", cwd) < (int)sizeof binary);
   assert(snprintf(server, sizeof server, "%s/arxiv-mcp", cwd) < (int)sizeof server);
   char *fixture[] = {"./backend_test", database, NULL}; Capture capture = {0};
-  assert(run_cmd(fixture, &capture) == 0 && capture.status == 0); capture_free(&capture);
+  assert(run_cmd_input(fixture, &capture, NULL) == 0 && capture.status == 0); capture_free(&capture);
   setenv("ARXIV_DATABASE", database, 1); setenv("ARXIV_BINARY", binary, 1);
   /* Both executables must work without Python, a shell, or any PATH tools. */
   setenv("PATH", "/nonexistent", 1);
   char *show[] = {binary, "show", "old/001", "--offset", "1", "--length", "2", NULL};
-  assert(run_cmd(show, &capture) == 0 && capture.status == 0);
+  assert(run_cmd_input(show, &capture, NULL) == 0 && capture.status == 0);
   cJSON *value = cJSON_Parse(capture.out); assert(value);
   assert(!strcmp(arg_str(value, "text"), "β😀")); cJSON_Delete(value); capture_free(&capture);
   int to_server[2], from_server[2]; assert(pipe(to_server) == 0 && pipe(from_server) == 0);
