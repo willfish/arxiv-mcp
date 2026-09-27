@@ -1,0 +1,7 @@
+/arxiv
+/arxiv-mcp
+/backend_test
+/protocol_test
+/result*
+__pycache__/
+*.pyc
